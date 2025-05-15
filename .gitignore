@@ -1,0 +1,84 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+
+# macOS
+.DS_Store
+
+# Expo
+.expo/
+.expo-shared/
+*.turtlebuild/
+*.expo/
+
+# React Native
+android/.gradle/
+android/.idea/
+android/app/build/
+android/build/
+android/local.properties
+android/captures/
+android/keystores/
+ios/Pods/
+ios/Podfile.lock
+ios/DerivedData/
+ios/build/
+ios/*.xcodeproj/project.xcworkspace/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.xcuserstate
+
+# Firebase Functions (Cloud Functions)
+functions/node_modules/
+functions/lib/
+functions/.env
+functions/.env.*
+
+# Firebase Emulators (optional)
+firebase-debug.log
+firebase.json
+.firebaserc
+.firestore/
+.firebase/
+.storage/
+.firebase/hosting.*
+
+# Firebase Hosting deploy artifacts
+public/**/bundle.*
+public/**/index.html
+
+# Android Studio & Xcode
+*.iml
+.idea/
+*.swp
+*.swo
+
+# VSCode
+.vscode/
+.history/
+
+# Testing/coverage
+coverage/
+jest-html-reporters-*
+*.lcov
+*.snap
+
+# Environment files
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+.env.test
+
+# Logs
+*.log
+logs/

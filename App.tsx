@@ -5,9 +5,11 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import 'react-native-gesture-handler';
 import { ActivityIndicator, View, Text } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import Firebase config
 import './src/config/firebase';
+import { firebaseAuth } from './src/config/firebase';
 
 // Import context
 import { AppProvider, useAppContext } from './src/context/AppContext';
@@ -84,14 +86,27 @@ export default function App() {
   const [isReady, setIsReady] = useState(false);
   
   useEffect(() => {
-    // Simulate loading resources
+    // Prepare app resources and check authentication
     const prepare = async () => {
       try {
-        // Simulate loading time for resources
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Check if Firebase auth is ready
+        await new Promise((resolve) => {
+          const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
+            console.log('Firebase auth state initialized, user:', user ? 'logged in' : 'not logged in');
+            unsubscribe();
+            resolve(true);
+          });
+        });
+        
+        // Check stored auth state
+        const storedAuthState = await AsyncStorage.getItem('noteskeeping_auth_state');
+        console.log('Stored auth state in App.tsx:', storedAuthState);
+        
+        // Mark app as ready
         setIsReady(true);
       } catch (e) {
-        console.warn(e);
+        console.warn('Error preparing app:', e);
+        setIsReady(true); // Still mark as ready to avoid being stuck
       }
     };
     

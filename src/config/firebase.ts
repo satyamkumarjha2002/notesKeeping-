@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -19,6 +19,16 @@ const firebaseApp = initializeApp(firebaseConfig);
 
 // Initialize Firebase services
 const firebaseAuth = getAuth(firebaseApp);
+
+// Enable persistent authentication
+setPersistence(firebaseAuth, browserLocalPersistence)
+  .then(() => {
+    console.log('Firebase auth persistence enabled');
+  })
+  .catch((error) => {
+    console.error('Error enabling auth persistence:', error);
+  });
+
 const firestoreDB = getFirestore(firebaseApp);
 const firebaseStorage = getStorage(firebaseApp);
 

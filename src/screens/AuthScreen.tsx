@@ -24,6 +24,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { firebaseService } from '../services/FirebaseService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type AuthScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Auth'>;
 
@@ -54,8 +55,18 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
 
     try {
       setLoading(true);
-      await signInWithEmailAndPassword(firebaseAuth, email, password);
+      
+      // Sign in with Firebase
+      const userCredential = await signInWithEmailAndPassword(firebaseAuth, email, password);
       setIsAuthenticated(true);
+      
+      // Store auth state in AsyncStorage
+      await AsyncStorage.setItem('noteskeeping_auth_state', 'true');
+      
+      // Clear any previous sign-out flag
+      await AsyncStorage.removeItem('user_signed_out');
+      
+      console.log('Login successful, user ID:', userCredential.user.uid);
       
       // Redirect to PIN entry or Home based on PIN setup
       if (isPinSet) {
@@ -64,6 +75,7 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
         navigation.replace('Home');
       }
     } catch (error: any) {
+      console.error('Login error:', error);
       Alert.alert('Login Error', error.message || 'Failed to login');
     } finally {
       setLoading(false);
@@ -128,6 +140,8 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
   
   // Complete signup process
   const handleCompleteSignup = async () => {
+    console.log('Starting signup process...');
+    
     if (!fullName) {
       Alert.alert('Error', 'Please enter your name');
       return;
@@ -140,22 +154,28 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
     
     try {
       setLoading(true);
+      console.log('Creating user account with email:', email);
       
       // Create user account
       const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
       const user = userCredential.user;
+      console.log('User account created successfully, UID:', user.uid);
       
       // Upload profile image if selected
       let photoURL = '';
       if (profileImage) {
+        console.log('Uploading profile image...');
         photoURL = await uploadProfileImage(user.uid);
+        console.log('Profile image uploaded, URL:', photoURL.substring(0, 50) + '...');
       }
       
       // Update user profile
+      console.log('Updating user profile with name:', fullName);
       await updateProfile(user, {
         displayName: fullName,
         photoURL: photoURL || null
       });
+      console.log('User profile updated successfully');
       
       // Store user data using FirebaseService's REST method to avoid streaming connections
       const userData = {
@@ -165,22 +185,36 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
         photoURL: photoURL
       };
       
+      console.log('Storing additional user data...');
       // Use the service method - don't await it to avoid any potential blocking
       firebaseService.storeUserData(user.uid, userData)
         .then(success => {
           if (!success) {
-            console.log('Failed to store user data, but continuing...');
+            console.warn('Failed to store user data, but continuing...');
+          } else {
+            console.log('User data stored successfully');
           }
         })
         .catch(error => {
-          console.log('Error in user data storage:', error);
+          console.error('Error in user data storage:', error);
         });
       
+      console.log('Setting authentication state...');
       setIsAuthenticated(true);
       
+      // Store auth state in AsyncStorage
+      await AsyncStorage.setItem('noteskeeping_auth_state', 'true');
+      
+      // Clear any previous sign-out flag
+      await AsyncStorage.removeItem('user_signed_out');
+      
+      console.log('Auth state saved to AsyncStorage');
+      
       // Go to PIN setup screen
+      console.log('Redirecting to PIN entry screen...');
       navigation.replace('PinEntry');
     } catch (error: any) {
+      console.error('Signup error:', error);
       Alert.alert('Signup Error', error.message || 'Failed to create account');
       setSignupStep(1); // Return to first step on error
     } finally {

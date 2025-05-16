@@ -4,6 +4,7 @@ import { Note } from '../../App';
 import { firebaseService } from '../services/FirebaseService';
 import { firestoreRESTService } from '../services/FirestoreRESTService';
 import { firebaseAuth } from '../config/firebase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Define the context shape
 interface NotesContextType {
@@ -18,6 +19,7 @@ interface NotesContextType {
   syncWithCloud: boolean;
   setSyncWithCloud: (value: boolean) => void;
   isUserSignedIn: boolean;
+  setIsUserSignedIn: (value: boolean) => void;
 }
 
 // Create context with default values
@@ -33,6 +35,7 @@ const NotesContext = createContext<NotesContextType>({
   syncWithCloud: true,
   setSyncWithCloud: () => {},
   isUserSignedIn: false,
+  setIsUserSignedIn: () => {},
 });
 
 // Fix TypeScript issues by casting components
@@ -62,13 +65,27 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
       try {
         setLoadingNotes(true);
         
+        // Check if user was explicitly signed out
+        const wasSignedOut = await AsyncStorage.getItem('user_signed_out');
+        console.log('NotesContext - Was signed out:', wasSignedOut);
+        
+        // Get the current authentication state
+        const storedAuthState = await AsyncStorage.getItem('noteskeeping_auth_state');
+        console.log('NotesContext - Stored auth state:', storedAuthState);
+        
         // Check if cloud sync is enabled (but default to true if not set)
         const syncEnabled = await storageAdapter.getItem(SYNC_KEY);
-        const shouldSync = syncEnabled !== 'false'; // Default to true if not explicitly set to false
+        const shouldSync = syncEnabled !== 'false' && wasSignedOut !== 'true'; // Don't sync if user signed out
         setSyncWithCloudState(shouldSync);
         
-        // Check if user is signed in
-        const userSignedIn = !!firebaseAuth.currentUser;
+        // Check if user is signed in - either active Firebase session or stored auth state
+        const user = firebaseAuth.currentUser;
+        console.log('NotesContext - Firebase current user:', user ? user.uid : 'null');
+        
+        // Consider user signed in if either Firebase has current user OR stored auth state is true
+        // AND they didn't explicitly sign out
+        const userSignedIn = (!!user || storedAuthState === 'true') && wasSignedOut !== 'true';
+        console.log('NotesContext - Setting user signed in:', userSignedIn);
         setIsUserSignedIn(userSignedIn);
         
         // If sync is enabled and user is signed in, load from Firebase
@@ -119,6 +136,17 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
     };
 
     loadNotes();
+    
+    // Add auth state listener to handle sign-in/sign-out
+    const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
+      setIsUserSignedIn(!!user);
+      if (!user) {
+        // User has signed out, update sync state
+        setSyncWithCloudState(false);
+      }
+    });
+    
+    return () => unsubscribe();
   }, []);
 
   // Manual refresh function to fetch latest notes
@@ -364,6 +392,7 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
     syncWithCloud,
     setSyncWithCloud: handleSyncWithCloud,
     isUserSignedIn,
+    setIsUserSignedIn,
   };
   
   return (

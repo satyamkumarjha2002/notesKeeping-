@@ -56,7 +56,8 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     syncWithCloud, 
     setSyncWithCloud, 
     isUserSignedIn,
-    setLoadingNotes
+    setLoadingNotes,
+    setIsUserSignedIn
   } = useNotesContext();
   
   // State
@@ -233,20 +234,34 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
   // Handle sign out
   const handleSignOut = async () => {
     try {
+      setLoadingNotes(true);
+      console.log('Starting sign out process...');
+      
       // Sign out from Firebase
       await signOut(firebaseAuth);
+      console.log('Firebase sign out successful');
       
-      // Clear authentication state in AsyncStorage
+      // Clear authentication state in AsyncStorage and other relevant storage
       await AsyncStorage.removeItem('noteskeeping_auth_state');
+      await AsyncStorage.setItem('user_signed_out', 'true'); // Flag to indicate explicit sign out
+      console.log('Auth state cleared from AsyncStorage');
       
-      // Redirect to Auth screen
-      Alert.alert('Success', 'You have been signed out', [
-        {
-          text: 'OK',
-          onPress: () => navigation.replace('Auth')
-        }
-      ]);
+      // Update the NotesContext state
+      setIsUserSignedIn(false);
+      setSyncWithCloud(false);
+      console.log('NotesContext updated with signed out state');
+      
+      setLoadingNotes(false);
+      
+      // Redirect to Auth screen immediately without confirmation dialog
+      console.log('Navigating to Auth screen...');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Auth' }],
+      });
     } catch (error) {
+      console.error('Sign out error:', error);
+      setLoadingNotes(false);
       Alert.alert('Error', 'Failed to sign out. Please try again.');
     }
   };

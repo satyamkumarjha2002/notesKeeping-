@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform, Text } from 'react-native';
+import { storageAdapter } from '../utils/storageAdapter';
 
 // Theme type and colors
 export type ThemeType = 'dark' | 'light';
@@ -28,6 +30,8 @@ export const ThemeColors = {
     statusBar: 'light-content',
     ripple: 'rgba(255, 255, 255, 0.1)',
     overlay: 'rgba(0, 0, 0, 0.6)',
+    disabled: '#666666',
+    placeholder: '#888888',
   },
   light: {
     background: '#FAFAFA',
@@ -52,6 +56,8 @@ export const ThemeColors = {
     statusBar: 'dark-content',
     ripple: 'rgba(0, 0, 0, 0.1)',
     overlay: 'rgba(0, 0, 0, 0.5)',
+    disabled: '#BBBBBB',
+    placeholder: '#AAAAAA',
   }
 };
 
@@ -63,6 +69,7 @@ export const CategoryColors = {
   Ideas: '#FB8C00',
   Lists: '#E53935',
   Private: '#C2185B',
+  'To-Do': '#5E35B1',
 };
 
 // AppContext interface
@@ -104,7 +111,7 @@ export const AppProvider = ({ children }: AppProviderProps) => {
   useEffect(() => {
     const loadTheme = async () => {
       try {
-        const savedTheme = await AsyncStorage.getItem('noteskeeping_theme');
+        const savedTheme = await storageAdapter.getItem('noteskeeping_theme');
         if (savedTheme) {
           setTheme(savedTheme as ThemeType);
         }
@@ -122,7 +129,7 @@ export const AppProvider = ({ children }: AppProviderProps) => {
     setTheme(newTheme);
     
     try {
-      await AsyncStorage.setItem('noteskeeping_theme', newTheme);
+      await storageAdapter.setItem('noteskeeping_theme', newTheme);
     } catch (error) {
       console.error('Failed to save theme:', error);
     }
@@ -139,7 +146,7 @@ export const AppProvider = ({ children }: AppProviderProps) => {
   // Verify PIN
   const verifyPin = async (pin: string): Promise<boolean> => {
     try {
-      const storedPin = await AsyncStorage.getItem('noteskeeping_pin');
+      const storedPin = await storageAdapter.getItem('noteskeeping_pin');
       return storedPin === pin;
     } catch (error) {
       console.error('Error verifying PIN:', error);
@@ -150,7 +157,7 @@ export const AppProvider = ({ children }: AppProviderProps) => {
   // Set PIN code
   const setPinCode = async (pin: string): Promise<void> => {
     try {
-      await AsyncStorage.setItem('noteskeeping_pin', pin);
+      await storageAdapter.setItem('noteskeeping_pin', pin);
       setIsPinSet(true);
     } catch (error) {
       console.error('Error setting PIN:', error);

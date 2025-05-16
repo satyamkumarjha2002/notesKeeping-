@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import 'react-native-gesture-handler';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Text } from 'react-native';
 
 // Import Firebase config
 import './src/config/firebase';
@@ -47,43 +47,67 @@ export type RootStackParamList = {
 // Create the stack navigator
 const Stack = createStackNavigator<RootStackParamList>();
 
-// Fix TypeScript issues by casting components
-const StatusBarComponent = StatusBar as any;
-const NavigatorComponent = Stack.Navigator as any;
-const ScreenComponent = Stack.Screen as any;
-
 // Main navigation component
 const AppNavigator = () => {
   const { theme, colors } = useAppContext();
   
   return (
     <NavigationContainer>
-      <StatusBarComponent style={theme === 'dark' ? 'light' : 'dark'} />
-      <NavigatorComponent
+      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+      <Stack.Navigator
         initialRouteName="Splash"
         screenOptions={{
           headerShown: false,
           cardStyle: { backgroundColor: colors.background }
         }}
       >
-        <ScreenComponent name="Splash" component={SplashScreen} />
-        <ScreenComponent name="PinEntry" component={PinEntryScreen} />
-        <ScreenComponent name="Home" component={HomeScreen} />
-        <ScreenComponent name="NoteEditor" component={NoteEditorScreen} />
-        <ScreenComponent name="Auth" component={AuthScreen} />
-      </NavigatorComponent>
+        <Stack.Screen name="Splash" component={SplashScreen} />
+        <Stack.Screen name="PinEntry" component={PinEntryScreen} />
+        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="NoteEditor" component={NoteEditorScreen} />
+        <Stack.Screen name="Auth" component={AuthScreen} />
+      </Stack.Navigator>
     </NavigationContainer>
   );
 };
 
+// Loading component
+const LoadingScreen = ({ colors }) => (
+  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+    <ActivityIndicator size="large" color={colors.primary} />
+    <Text style={{ marginTop: 16, color: colors.text }}>Loading...</Text>
+  </View>
+);
+
 // Root app component with providers
 export default function App() {
+  const [isReady, setIsReady] = useState(false);
+  
+  useEffect(() => {
+    // Simulate loading resources
+    const prepare = async () => {
+      try {
+        // Simulate loading time for resources
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        setIsReady(true);
+      } catch (e) {
+        console.warn(e);
+      }
+    };
+    
+    prepare();
+  }, []);
+  
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <NotesProvider>
-          <AppNavigator />
-        </NotesProvider>
+        {!isReady ? (
+          <LoadingScreen colors={require('./src/context/AppContext').ThemeColors.dark} />
+        ) : (
+          <NotesProvider>
+            <AppNavigator />
+          </NotesProvider>
+        )}
       </AppProvider>
     </SafeAreaProvider>
   );

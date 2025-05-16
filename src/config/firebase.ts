@@ -19,19 +19,15 @@ const firebaseApp = initializeApp(firebaseConfig);
 
 // Initialize Firebase services
 const firebaseAuth = getAuth(firebaseApp);
-
-// Use the specific database name 'notesdb' for Firestore
-// Note: The database name is specified in the FirebaseService when making REST API calls
 const firestoreDB = getFirestore(firebaseApp);
-
 const firebaseStorage = getStorage(firebaseApp);
 
 // Export Firebase modules
-export { 
-  firebaseApp, 
-  firebaseAuth, 
-  firestoreDB, 
-  firebaseStorage 
+export {
+  firebaseApp,
+  firebaseAuth,
+  firestoreDB,
+  firebaseStorage
 };
 
 export default firebaseApp; 

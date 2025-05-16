@@ -11,12 +11,15 @@ import {
   Platform,
   ActivityIndicator,
   Animated,
-  StatusBar
+  StatusBar,
+  Switch,
+  Dimensions
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList, Note } from '../../App';
 import { useAppContext } from '../context/AppContext';
+import { useNotesContext } from '../context/NotesContext';
 import uuid from 'react-native-uuid';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -29,17 +32,22 @@ interface NoteEditorScreenProps {
   route: NoteEditorScreenRouteProp;
 }
 
+// Get device dimensions for responsive layout
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 const NoteEditorScreen = ({ navigation, route }: NoteEditorScreenProps) => {
-  // Use new theme context
+  // Use contexts
   const { theme, colors, getCategoryColor } = useAppContext();
+  const { addNote, updateNote } = useNotesContext();
   
   const isEditing = !!route.params?.note;
-  const isPrivate = route.params?.isPrivate || (route.params?.note?.isPrivate || false);
+  const initialIsPrivate = route.params?.isPrivate || (route.params?.note?.isPrivate || false);
   
   // State
   const [title, setTitle] = useState(route.params?.note?.title || '');
   const [content, setContent] = useState(route.params?.note?.content || '');
   const [category, setCategory] = useState(route.params?.note?.category || 'General');
+  const [isPrivate, setIsPrivate] = useState(initialIsPrivate);
   const [saving, setSaving] = useState(false);
   const [showCategorySelector, setShowCategorySelector] = useState(false);
   
@@ -47,7 +55,7 @@ const NoteEditorScreen = ({ navigation, route }: NoteEditorScreenProps) => {
   const categoryExpandAnim = React.useRef(new Animated.Value(0)).current;
   
   // Available categories
-  const categories = ['General', 'Work', 'Personal', 'Ideas', 'Lists', isPrivate ? 'Private' : null].filter(Boolean);
+  const categories = ['General', 'Work', 'Personal', 'Ideas', 'Lists', 'To-Do'].filter(Boolean);
   
   // Get category icon
   const getCategoryIcon = (categoryName: string) => {
@@ -98,7 +106,7 @@ const NoteEditorScreen = ({ navigation, route }: NoteEditorScreenProps) => {
   };
   
   // Save the note
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!title.trim()) {
       Alert.alert('Error', 'Please enter a title for your note');
       return;
@@ -117,8 +125,20 @@ const NoteEditorScreen = ({ navigation, route }: NoteEditorScreenProps) => {
         isPrivate: isPrivate,
       };
       
-      // Navigate back with the saved note
-      navigation.navigate('Home', { savedNote: noteToSave });
+      if (isEditing) {
+        // Update existing note directly through context
+        await updateNote(noteToSave);
+        Alert.alert('Success', 'Note updated successfully');
+      } else {
+        // Add new note directly through context
+        await addNote(noteToSave);
+        Alert.alert('Success', 'Note saved successfully');
+      }
+      
+      // Navigate back to home after a short delay to show success message
+      setTimeout(() => {
+        navigation.goBack();
+      }, 1000);
     } catch (error) {
       console.error('Error saving note:', error);
       Alert.alert('Error', 'Failed to save note. Please try again.');
@@ -245,6 +265,7 @@ const NoteEditorScreen = ({ navigation, route }: NoteEditorScreenProps) => {
         <TouchableOpacity
           style={[styles.iconButton, { backgroundColor: colors.surfaceVariant }]}
           onPress={handleBack}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <MaterialIcons name="arrow-back" size={22} color={colors.icon} />
         </TouchableOpacity>
@@ -258,40 +279,89 @@ const NoteEditorScreen = ({ navigation, route }: NoteEditorScreenProps) => {
           >
             {isEditing ? 'Edit Note' : 'New Note'}
           </Text>
-          {isPrivate && (
-            <View 
-              style={[
-                styles.privateIndicator,
-                { backgroundColor: `${getCategoryColor('Private')}22` }
-              ]}
-            >
-              <MaterialIcons name="lock" size={14} color={getCategoryColor('Private')} style={styles.lockIcon} />
-              <Text style={[
-                styles.privateIndicatorText,
-                { color: getCategoryColor('Private') }
-              ]}>Private</Text>
-            </View>
-          )}
         </View>
         
+        <View style={styles.headerActions}>
+          {/* Privacy toggle */}
+          <View style={styles.privacyToggle}>
+            <MaterialIcons 
+              name={isPrivate ? "lock" : "lock-open"} 
+              size={20} 
+              color={isPrivate ? colors.primary : colors.icon} 
+            />
+            <Switch
+              value={isPrivate}
+              onValueChange={setIsPrivate}
+              trackColor={{ false: colors.surfaceVariant, true: `${colors.primary}80` }}
+              thumbColor={isPrivate ? colors.primary : colors.icon}
+              style={{ marginLeft: 8 }}
+            />
+          </View>
+          
+          {/* Save button */}
+          <TouchableOpacity
+            style={[
+              styles.saveButton,
+              { backgroundColor: colors.primary }
+            ]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text style={styles.saveButtonText}>
+                Save
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+      
+      {/* Category selector button - moved below header */}
+      <View style={styles.categoryButtonContainer}>
         <TouchableOpacity
           style={[
-            styles.saveButton,
-            { backgroundColor: colors.primary }
+            styles.categoryButton, 
+            { 
+              backgroundColor: showCategorySelector 
+                ? `${getCategoryColor(category)}22` 
+                : colors.surfaceVariant 
+            }
           ]}
-          onPress={handleSave}
-          disabled={saving}
-          activeOpacity={0.8}
+          onPress={() => setShowCategorySelector(!showCategorySelector)}
+          disabled={isPrivate}
         >
-          {saving ? (
-            <ActivityIndicator color={colors.onPrimary} size="small" />
-          ) : (
-            <Text style={[styles.saveButtonText, { color: colors.onPrimary }]}>Save</Text>
-          )}
+          <MaterialCommunityIcons 
+            name={getCategoryIcon(category)} 
+            size={20} 
+            color={isPrivate ? colors.disabled : getCategoryColor(category)} 
+          />
+          <Text 
+            style={[
+              styles.categoryText,
+              { 
+                color: isPrivate ? colors.disabled : getCategoryColor(category),
+                marginLeft: 8,
+                opacity: isPrivate ? 0.5 : 1
+              }
+            ]}
+          >
+            {isPrivate ? 'Private' : category}
+          </Text>
+          <MaterialIcons 
+            name={showCategorySelector ? "keyboard-arrow-up" : "keyboard-arrow-down"} 
+            size={20} 
+            color={isPrivate ? colors.disabled : colors.icon}
+            style={{ marginLeft: 'auto' }}
+          />
         </TouchableOpacity>
       </View>
       
-      {/* Note Content */}
+      {/* Category selector */}
+      {renderCategorySelector()}
+      
+      {/* Note content */}
       <ScrollView 
         style={styles.contentContainer}
         keyboardShouldPersistTaps="handled"
@@ -302,55 +372,22 @@ const NoteEditorScreen = ({ navigation, route }: NoteEditorScreenProps) => {
             styles.titleInput,
             { color: colors.text }
           ]}
-          placeholder="Note Title"
-          placeholderTextColor={colors.textTertiary}
+          placeholder="Title"
+          placeholderTextColor={colors.placeholder}
           value={title}
           onChangeText={setTitle}
           maxLength={100}
+          multiline={false}
+          autoFocus={!isEditing}
         />
-        
-        {!isPrivate && (
-          <TouchableOpacity
-            style={[
-              styles.categoryButton,
-              { backgroundColor: colors.surfaceVariant }
-            ]}
-            onPress={() => setShowCategorySelector(!showCategorySelector)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.categoryLabelContainer}>
-              <MaterialCommunityIcons 
-                name={getCategoryIcon(category)} 
-                size={18} 
-                color={getCategoryColor(category)} 
-                style={styles.categoryDot} 
-              />
-              <Text
-                style={[
-                  styles.categoryButtonText,
-                  { color: colors.text }
-                ]}
-              >
-                {category}
-              </Text>
-            </View>
-            <MaterialIcons 
-              name={showCategorySelector ? "keyboard-arrow-up" : "keyboard-arrow-down"} 
-              size={20} 
-              color={colors.icon} 
-            />
-          </TouchableOpacity>
-        )}
-        
-        {renderCategorySelector()}
         
         <TextInput
           style={[
             styles.contentInput,
-            { color: colors.textSecondary }
+            { color: colors.text }
           ]}
-          placeholder="Start typing your note..."
-          placeholderTextColor={colors.textTertiary}
+          placeholder="Note content"
+          placeholderTextColor={colors.placeholder}
           value={content}
           onChangeText={setContent}
           multiline
@@ -371,9 +408,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'transparent',
-    elevation: 1,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   iconButton: {
     width: 40,
@@ -384,71 +423,39 @@ const styles = StyleSheet.create({
   },
   headerTitleContainer: {
     flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: 'bold',
   },
-  privateIndicator: {
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
   },
-  lockIcon: {
-    marginRight: 4,
+  privacyToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
   },
-  privateIndicatorText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  saveButton: {
+  categoryButtonContainer: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
-  },
-  saveButtonText: {
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  contentContainer: {
-    flex: 1,
-    padding: 20,
-  },
-  titleInput: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    padding: 0,
   },
   categoryButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     padding: 12,
-    borderRadius: 12,
-    marginBottom: 16,
+    borderRadius: 8,
   },
-  categoryLabelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  categoryDot: {
-    marginRight: 8,
-  },
-  categoryButtonText: {
+  categoryText: {
     fontSize: 15,
     fontWeight: '500',
   },
   categorySelector: {
-    borderRadius: 12,
-    marginBottom: 16,
-    padding: 8,
+    marginHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   categoryGrid: {
     flexDirection: 'row',
@@ -457,12 +464,12 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   categoryOption: {
-    width: '48%',
+    width: SCREEN_WIDTH < 350 ? '100%' : '48%', // Full width on small screens
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   categoryIcon: {
     marginRight: 8,
@@ -470,13 +477,37 @@ const styles = StyleSheet.create({
   categoryOptionText: {
     fontSize: 14,
   },
+  contentContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  titleInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    padding: 0,
+  },
   contentInput: {
     flex: 1,
     fontSize: 16,
     lineHeight: 24,
     padding: 0,
-    minHeight: 300,
+    minHeight: SCREEN_HEIGHT * 0.3, // Responsive height
     textAlignVertical: 'top',
+  },
+  saveButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 80,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 15,
   },
 });
 

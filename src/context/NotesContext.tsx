@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import { storageAdapter } from '../utils/storageAdapter';
 import { Note } from '../../App';
 import { firebaseService } from '../services/FirebaseService';
+import { firestoreRESTService } from '../services/FirestoreRESTService';
 import { firebaseAuth } from '../config/firebase';
 
 // Define the context shape
@@ -13,6 +14,7 @@ interface NotesContextType {
   deleteNote: (id: string) => Promise<void>;
   refreshNotes: () => Promise<void>;
   loadingNotes: boolean;
+  setLoadingNotes: (loading: boolean) => void;
   syncWithCloud: boolean;
   setSyncWithCloud: (value: boolean) => void;
   isUserSignedIn: boolean;
@@ -27,7 +29,8 @@ const NotesContext = createContext<NotesContextType>({
   deleteNote: async () => {},
   refreshNotes: async () => {},
   loadingNotes: true,
-  syncWithCloud: false,
+  setLoadingNotes: () => {},
+  syncWithCloud: true,
   setSyncWithCloud: () => {},
   isUserSignedIn: false,
 });
@@ -45,52 +48,12 @@ const NOTES_KEY = 'noteskeeping_notes';
 const PRIVATE_NOTES_KEY = 'noteskeeping_private_notes';
 const SYNC_KEY = 'noteskeeping_sync_enabled';
 
-// Sample initial notes for demonstration
-const initialNotes: Note[] = [
-  {
-    id: '1',
-    title: 'Welcome to NotesKeeping',
-    content: 'This is your first note. Tap to edit or add more content...',
-    timestamp: 'Today, 10:30 AM',
-    category: 'General',
-    isPrivate: false,
-  },
-  {
-    id: '2',
-    title: 'Shopping List',
-    content: '1. Milk\n2. Eggs\n3. Bread\n4. Fruits',
-    timestamp: 'Yesterday, 4:15 PM',
-    category: 'Lists',
-    isPrivate: false,
-  },
-  {
-    id: '3',
-    title: 'Project Ideas',
-    content: 'App concepts:\n- Fitness tracker\n- Recipe manager\n- Language learning tool',
-    timestamp: 'May 15, 2:45 PM',
-    category: 'Work',
-    isPrivate: false,
-  },
-];
-
-// Sample initial private notes
-const initialPrivateNotes: Note[] = [
-  {
-    id: '4',
-    title: 'Private Notes',
-    content: 'This section is password protected for your sensitive information.',
-    timestamp: 'Just now',
-    category: 'Private',
-    isPrivate: true,
-  },
-];
-
 // Context provider component
 export const NotesProvider = ({ children }: NotesProviderProps) => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [privateNotes, setPrivateNotes] = useState<Note[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(true);
-  const [syncWithCloud, setSyncWithCloudState] = useState(false);
+  const [syncWithCloud, setSyncWithCloudState] = useState(true);
   const [isUserSignedIn, setIsUserSignedIn] = useState(false);
   
   // Initialize notes data
@@ -99,9 +62,9 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
       try {
         setLoadingNotes(true);
         
-        // Check if cloud sync is enabled
-        const syncEnabled = await SecureStore.getItemAsync(SYNC_KEY);
-        const shouldSync = syncEnabled === 'true';
+        // Check if cloud sync is enabled (but default to true if not set)
+        const syncEnabled = await storageAdapter.getItem(SYNC_KEY);
+        const shouldSync = syncEnabled !== 'false'; // Default to true if not explicitly set to false
         setSyncWithCloudState(shouldSync);
         
         // Check if user is signed in
@@ -110,30 +73,43 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
         
         // If sync is enabled and user is signed in, load from Firebase
         if (shouldSync && userSignedIn) {
-          const firebaseNotes = await firebaseService.getNotes();
-          const firebasePrivateNotes = await firebaseService.getPrivateNotes();
-          
-          setNotes(firebaseNotes);
-          setPrivateNotes(firebasePrivateNotes);
+          try {
+            // Use the REST service instead of the streaming service
+            const firebaseNotes = await firestoreRESTService.getNotes();
+            const firebasePrivateNotes = await firestoreRESTService.getPrivateNotes();
+            
+            setNotes(firebaseNotes);
+            setPrivateNotes(firebasePrivateNotes);
+            
+            // Also update local cache
+            await storageAdapter.setItem(NOTES_KEY, JSON.stringify(firebaseNotes));
+            await storageAdapter.setItem(PRIVATE_NOTES_KEY, JSON.stringify(firebasePrivateNotes));
+            
+            setLoadingNotes(false);
+            return; // Exit early if Firebase load was successful
+          } catch (firebaseError) {
+            console.error('Error loading from Firebase, falling back to local storage:', firebaseError);
+            // Continue to local storage fallback
+          }
+        }
+        
+        // Fallback to local storage if Firebase failed or not available
+        const savedNotes = await storageAdapter.getItem(NOTES_KEY);
+        if (savedNotes) {
+          setNotes(JSON.parse(savedNotes));
         } else {
-          // Otherwise, load from local storage
-          const savedNotes = await SecureStore.getItemAsync(NOTES_KEY);
-          if (savedNotes) {
-            setNotes(JSON.parse(savedNotes));
-          } else {
-            // Use initial notes for first-time users
-            setNotes(initialNotes);
-            await SecureStore.setItemAsync(NOTES_KEY, JSON.stringify(initialNotes));
-          }
+          // Initialize with empty array
+          setNotes([]);
+          await storageAdapter.setItem(NOTES_KEY, JSON.stringify([]));
+        }
 
-          const savedPrivateNotes = await SecureStore.getItemAsync(PRIVATE_NOTES_KEY);
-          if (savedPrivateNotes) {
-            setPrivateNotes(JSON.parse(savedPrivateNotes));
-          } else {
-            // Use initial private notes for first-time users
-            setPrivateNotes(initialPrivateNotes);
-            await SecureStore.setItemAsync(PRIVATE_NOTES_KEY, JSON.stringify(initialPrivateNotes));
-          }
+        const savedPrivateNotes = await storageAdapter.getItem(PRIVATE_NOTES_KEY);
+        if (savedPrivateNotes) {
+          setPrivateNotes(JSON.parse(savedPrivateNotes));
+        } else {
+          // Initialize with empty array
+          setPrivateNotes([]);
+          await storageAdapter.setItem(PRIVATE_NOTES_KEY, JSON.stringify([]));
         }
       } catch (error) {
         console.error('Error loading notes:', error);
@@ -151,11 +127,16 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
     
     try {
       setLoadingNotes(true);
-      const firebaseNotes = await firebaseService.getNotes();
-      const firebasePrivateNotes = await firebaseService.getPrivateNotes();
+      // Use REST service
+      const firebaseNotes = await firestoreRESTService.getNotes();
+      const firebasePrivateNotes = await firestoreRESTService.getPrivateNotes();
       
       setNotes(firebaseNotes);
       setPrivateNotes(firebasePrivateNotes);
+      
+      // Update local cache
+      await storageAdapter.setItem(NOTES_KEY, JSON.stringify(firebaseNotes));
+      await storageAdapter.setItem(PRIVATE_NOTES_KEY, JSON.stringify(firebasePrivateNotes));
     } catch (error) {
       console.error('Error refreshing notes:', error);
     } finally {
@@ -163,20 +144,20 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
     }
   };
 
-  // Save notes to secure storage
+  // Save notes to storage
   const saveNotes = async (updatedNotes: Note[]) => {
     try {
-      await SecureStore.setItemAsync(NOTES_KEY, JSON.stringify(updatedNotes));
+      await storageAdapter.setItem(NOTES_KEY, JSON.stringify(updatedNotes));
     } catch (error) {
       console.error('Error saving notes:', error);
       throw error;
     }
   };
 
-  // Save private notes to secure storage
+  // Save private notes to storage
   const savePrivateNotes = async (updatedNotes: Note[]) => {
     try {
-      await SecureStore.setItemAsync(PRIVATE_NOTES_KEY, JSON.stringify(updatedNotes));
+      await storageAdapter.setItem(PRIVATE_NOTES_KEY, JSON.stringify(updatedNotes));
     } catch (error) {
       console.error('Error saving private notes:', error);
       throw error;
@@ -187,7 +168,7 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
   const handleSyncWithCloud = async (value: boolean) => {
     try {
       setSyncWithCloudState(value);
-      await SecureStore.setItemAsync(SYNC_KEY, value ? 'true' : 'false');
+      await storageAdapter.setItem(SYNC_KEY, value ? 'true' : 'false');
       
       // When enabling sync, push current notes to cloud if signed in
       if (value && isUserSignedIn) {
@@ -195,12 +176,12 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
         try {
           // Batch sync regular notes
           if (notes.length > 0) {
-            await firebaseService.batchSyncNotes(notes);
+            await firestoreRESTService.batchSyncNotes(notes);
           }
           
           // Batch sync private notes
           if (privateNotes.length > 0) {
-            await firebaseService.batchSyncNotes(privateNotes);
+            await firestoreRESTService.batchSyncNotes(privateNotes);
           }
           
           // Refresh notes after syncing
@@ -220,16 +201,23 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
   const addNote = async (note: Note) => {
     try {
       if (syncWithCloud && isUserSignedIn) {
-        // Add to Firebase
-        const savedNote = await firebaseService.addNote(note);
+        // Add to Firebase using REST service
+        const savedNote = await firestoreRESTService.addNote(note);
         
         if (note.isPrivate) {
           setPrivateNotes(prevNotes => [savedNote, ...prevNotes]);
         } else {
           setNotes(prevNotes => [savedNote, ...prevNotes]);
         }
+        
+        // Update local cache as well
+        if (note.isPrivate) {
+          savePrivateNotes([savedNote, ...privateNotes]);
+        } else {
+          saveNotes([savedNote, ...notes]);
+        }
       } else {
-        // Add to local storage
+        // Add to local storage only as fallback
         if (note.isPrivate) {
           const updatedPrivateNotes = [note, ...privateNotes];
           setPrivateNotes(updatedPrivateNotes);
@@ -242,6 +230,18 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
       }
     } catch (error) {
       console.error('Error adding note:', error);
+      
+      // Fallback to local storage if Firebase fails
+      if (note.isPrivate) {
+        const updatedPrivateNotes = [note, ...privateNotes];
+        setPrivateNotes(updatedPrivateNotes);
+        await savePrivateNotes(updatedPrivateNotes);
+      } else {
+        const updatedNotes = [note, ...notes];
+        setNotes(updatedNotes);
+        await saveNotes(updatedNotes);
+      }
+      
       throw error;
     }
   };
@@ -250,23 +250,25 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
   const updateNote = async (updatedNote: Note) => {
     try {
       if (syncWithCloud && isUserSignedIn) {
-        // Update in Firebase
-        await firebaseService.updateNote(updatedNote);
+        // Update in Firebase using REST service
+        await firestoreRESTService.updateNote(updatedNote);
         
-        // Also update in local state to keep UI in sync
+        // Also update local state and cache
         if (updatedNote.isPrivate) {
           const updatedPrivateNotes = privateNotes.map(note => 
             note.id === updatedNote.id ? updatedNote : note
           );
           setPrivateNotes(updatedPrivateNotes);
+          await savePrivateNotes(updatedPrivateNotes);
         } else {
           const updatedNotes = notes.map(note => 
             note.id === updatedNote.id ? updatedNote : note
           );
           setNotes(updatedNotes);
+          await saveNotes(updatedNotes);
         }
       } else {
-        // Update in local storage
+        // Update local storage only as fallback
         if (updatedNote.isPrivate) {
           const updatedPrivateNotes = privateNotes.map(note => 
             note.id === updatedNote.id ? updatedNote : note
@@ -283,6 +285,22 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
       }
     } catch (error) {
       console.error('Error updating note:', error);
+      
+      // Fallback to local storage if Firebase fails
+      if (updatedNote.isPrivate) {
+        const updatedPrivateNotes = privateNotes.map(note => 
+          note.id === updatedNote.id ? updatedNote : note
+        );
+        setPrivateNotes(updatedPrivateNotes);
+        await savePrivateNotes(updatedPrivateNotes);
+      } else {
+        const updatedNotes = notes.map(note => 
+          note.id === updatedNote.id ? updatedNote : note
+        );
+        setNotes(updatedNotes);
+        await saveNotes(updatedNotes);
+      }
+      
       throw error;
     }
   };
@@ -291,36 +309,44 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
   const deleteNote = async (id: string) => {
     try {
       // Find the note to determine if it's private
-      const regularNote = notes.find(note => note.id === id);
-      const privateNote = privateNotes.find(note => note.id === id);
-      const isPrivate = !!privateNote;
+      const noteToDelete = [...notes, ...privateNotes].find(note => note.id === id);
+      
+      if (!noteToDelete) {
+        throw new Error('Note not found');
+      }
       
       if (syncWithCloud && isUserSignedIn) {
-        // Delete from Firebase
-        await firebaseService.deleteNote(id, isPrivate);
-        
-        // Also delete from local state to keep UI in sync
-        if (isPrivate) {
-          const updatedPrivateNotes = privateNotes.filter(note => note.id !== id);
-          setPrivateNotes(updatedPrivateNotes);
-        } else {
-          const updatedNotes = notes.filter(note => note.id !== id);
-          setNotes(updatedNotes);
-        }
+        // Delete from Firebase using REST service
+        await firestoreRESTService.deleteNote(id, noteToDelete.isPrivate);
+      }
+      
+      // Always update local state and storage too
+      if (noteToDelete.isPrivate) {
+        const updatedPrivateNotes = privateNotes.filter(note => note.id !== id);
+        setPrivateNotes(updatedPrivateNotes);
+        await savePrivateNotes(updatedPrivateNotes);
       } else {
-        // Delete from local storage
-        if (isPrivate) {
-          const updatedPrivateNotes = privateNotes.filter(note => note.id !== id);
-          setPrivateNotes(updatedPrivateNotes);
-          await savePrivateNotes(updatedPrivateNotes);
-        } else {
-          const updatedNotes = notes.filter(note => note.id !== id);
-          setNotes(updatedNotes);
-          await saveNotes(updatedNotes);
-        }
+        const updatedNotes = notes.filter(note => note.id !== id);
+        setNotes(updatedNotes);
+        await saveNotes(updatedNotes);
       }
     } catch (error) {
       console.error('Error deleting note:', error);
+      
+      // Continue with local deletion even if Firebase delete fails
+      // Find the note again in the catch block to avoid reference errors
+      const noteToDeleteFallback = [...notes, ...privateNotes].find(note => note.id === id);
+      
+      if (noteToDeleteFallback && noteToDeleteFallback.isPrivate) {
+        const updatedPrivateNotes = privateNotes.filter(note => note.id !== id);
+        setPrivateNotes(updatedPrivateNotes);
+        await savePrivateNotes(updatedPrivateNotes);
+      } else if (noteToDeleteFallback) {
+        const updatedNotes = notes.filter(note => note.id !== id);
+        setNotes(updatedNotes);
+        await saveNotes(updatedNotes);
+      }
+      
       throw error;
     }
   };
@@ -334,6 +360,7 @@ export const NotesProvider = ({ children }: NotesProviderProps) => {
     deleteNote,
     refreshNotes,
     loadingNotes,
+    setLoadingNotes,
     syncWithCloud,
     setSyncWithCloud: handleSyncWithCloud,
     isUserSignedIn,

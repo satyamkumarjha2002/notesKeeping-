@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -15,8 +15,11 @@ import {
   Animated,
   Easing,
   Image,
-  RefreshControl
+  RefreshControl,
+  ScrollView,
+  Dimensions
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList, Note } from '../../App';
@@ -36,8 +39,11 @@ interface HomeScreenProps {
   route: HomeScreenRouteProp;
 }
 
+// Get device dimensions for responsive layout
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
-  // Use new theme context
+  // Context hooks
   const { theme, colors, getCategoryColor } = useAppContext();
   const { 
     notes, 
@@ -49,7 +55,8 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     loadingNotes, 
     syncWithCloud, 
     setSyncWithCloud, 
-    isUserSignedIn 
+    isUserSignedIn,
+    setLoadingNotes
   } = useNotesContext();
   
   // State
@@ -61,6 +68,10 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [refreshing, setRefreshing] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  
+  // Create a ref map for the Swipeable components
+  const swipeableRefs = useRef<{ [key: string]: Swipeable | null }>({});
   
   // Animate notes when they appear
   useEffect(() => {
@@ -70,7 +81,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [fadeAnim]);
+  }, [fadeAnim, notes, privateNotes, categoryFilter]);
   
   // Process saved note if provided in route params
   useEffect(() => {
@@ -135,6 +146,51 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     
     // Close the modal
     setShowCreateModal(false);
+  };
+  
+  // Handle deleting a note with confirmation
+  const handleDeleteNote = (note: Note) => {
+    Alert.alert(
+      'Delete Note',
+      'Are you sure you want to delete this note? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Show loading indicator
+              setLoadingNotes(true);
+              
+              // Delete the note
+              await deleteNote(note.id);
+              
+              // Show success feedback
+              Alert.alert(
+                'Note Deleted',
+                'The note has been successfully deleted',
+                [{ text: 'OK' }],
+                { cancelable: true }
+              );
+            } catch (error) {
+              console.error('Error deleting note:', error);
+              Alert.alert(
+                'Error',
+                'Failed to delete note. Please check your network connection and try again.',
+                [{ text: 'OK' }]
+              );
+            } finally {
+              // Hide loading indicator
+              setLoadingNotes(false);
+            }
+          }
+        }
+      ]
+    );
   };
   
   // Handle private note access
@@ -225,7 +281,12 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     setSyncWithCloud(value);
   };
   
-  // Get notes to display based on current state
+  // Filter notes by category
+  const handleCategoryFilter = (category: string | null) => {
+    setCategoryFilter(category);
+  };
+  
+  // Get notes to display based on current state and filters
   const getNotesToDisplay = () => {
     let notesToDisplay;
     if (showingPrivate) {
@@ -234,6 +295,12 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
       notesToDisplay = notes;
     }
 
+    // Apply category filter if set
+    if (categoryFilter) {
+      notesToDisplay = notesToDisplay.filter(note => note.category === categoryFilter);
+    }
+
+    // Apply search filter if there's a query
     if (searchQuery.trim() !== '') {
       const lowercasedQuery = searchQuery.toLowerCase();
       return notesToDisplay.filter(note => 
@@ -241,6 +308,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
         note.content.toLowerCase().includes(lowercasedQuery)
       );
     }
+
     return notesToDisplay;
   };
   
@@ -267,111 +335,240 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     }
   };
   
-  // Render a note card with new design
-  const renderNoteCard = ({ item, index }: { item: Note, index: number }) => {
-    // Animation delay based on index
-    const animationDelay = index * 50;
+  // Render the category filter chips with improved visual design
+  const renderCategoryFilters = () => {
+    const categories = ['General', 'Work', 'Personal', 'Ideas', 'Lists', 'To-Do'];
+    if (showingPrivate) {
+      categories.push('Private');
+    }
     
     return (
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [
-            {
-              translateY: fadeAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [20, 0],
-              }),
-            },
-          ],
-        }}
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.categoryFiltersContainer}
       >
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[
-            styles.noteCard,
-            viewMode === 'grid' ? styles.gridCard : styles.listCard,
-            { 
-              backgroundColor: colors.surface,
-              shadowColor: colors.cardShadow,
-              borderColor: item.isPrivate ? getCategoryColor('Private') : colors.border,
+            styles.categoryChip,
+            {
+              backgroundColor: !categoryFilter ? `${colors.primary}10` : 'transparent',
+              borderColor: !categoryFilter ? colors.primary : 'transparent'
             }
           ]}
-          onPress={() => handleNotePress(item)}
-          activeOpacity={0.7}
+          onPress={() => handleCategoryFilter(null)}
         >
-          <View style={styles.cardContent}>
-            <View style={styles.cardHeader}>
-              <View style={styles.titleContainer}>
-                <Text 
-                  style={[
-                    styles.noteTitle,
-                    { color: colors.text }
-                  ]} 
-                  numberOfLines={1}
-                >
-                  {item.title}
-                </Text>
-                
-                {item.isPrivate && (
-                  <MaterialIcons 
-                    name="lock" 
-                    size={16} 
-                    color={getCategoryColor('Private')} 
-                    style={styles.lockIcon} 
-                  />
-                )}
-              </View>
-              
-              <View 
-                style={[
-                  styles.categoryBadge,
-                  { backgroundColor: `${getCategoryColor(item.category)}22` }
-                ]}
-              >
-                <MaterialCommunityIcons 
-                  name={getCategoryIcon(item.category)} 
-                  size={14} 
-                  color={getCategoryColor(item.category)} 
-                  style={styles.categoryIcon} 
-                />
-                <Text 
-                  style={[
-                    styles.categoryText,
-                    { color: getCategoryColor(item.category) }
-                  ]}
-                >
-                  {item.category}
-                </Text>
-              </View>
-            </View>
-            
-            <Text 
-              style={[
-                styles.noteContent,
-                { color: colors.textSecondary }
-              ]} 
-              numberOfLines={viewMode === 'grid' ? 4 : 2}
-            >
-              {item.content}
-            </Text>
-            
-            <View style={styles.cardFooter}>
-              <Text 
-                style={[
-                  styles.timestamp,
-                  { color: colors.textTertiary }
-                ]}
-              >
-                {formatTimestamp(item.timestamp)}
-              </Text>
-            </View>
-          </View>
+          <Text
+            style={[
+              styles.categoryChipText,
+              { 
+                color: !categoryFilter ? colors.primary : colors.textSecondary,
+                fontWeight: !categoryFilter ? '600' : '400'
+              }
+            ]}
+          >
+            All
+          </Text>
         </TouchableOpacity>
-      </Animated.View>
+        
+        {categories.map(category => (
+          <TouchableOpacity
+            key={category}
+            style={[
+              styles.categoryChip,
+              {
+                backgroundColor: categoryFilter === category ? `${getCategoryColor(category)}10` : 'transparent',
+                borderColor: categoryFilter === category ? getCategoryColor(category) : 'transparent'
+              }
+            ]}
+            onPress={() => handleCategoryFilter(category)}
+          >
+            <MaterialCommunityIcons 
+              name={getCategoryIcon(category)} 
+              size={16} 
+              color={getCategoryColor(category)} 
+              style={styles.categoryChipIcon} 
+            />
+            <Text
+              style={[
+                styles.categoryChipText,
+                { 
+                  color: categoryFilter === category ? getCategoryColor(category) : colors.textSecondary,
+                  fontWeight: categoryFilter === category ? '600' : '400'
+                }
+              ]}
+            >
+              {category}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
     );
   };
   
-  // Header component with search and view toggle
+  // Function to handle swipeable ref creation
+  const setSwipeableRef = useCallback((ref: Swipeable | null, id: string) => {
+    if (ref) {
+      swipeableRefs.current[id] = ref;
+    }
+  }, []);
+
+  // Render note card with improved visual design
+  const renderNoteCard = useCallback(({ item, index }: { item: Note, index: number }) => {
+    // Define right swipe actions
+    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>) => {
+      const translateX = progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [100, 0]
+      });
+
+      return (
+        <Animated.View 
+          style={[
+            styles.deleteContainer, 
+            { transform: [{ translateX }] }
+          ]}
+        >
+          <TouchableOpacity
+            style={[styles.deleteActionInner, { backgroundColor: colors.error }]}
+            onPress={() => {
+              swipeableRefs.current[item.id]?.close();
+              handleDeleteNote(item);
+            }}
+          >
+            <MaterialIcons name="delete" size={24} color="white" />
+            <Text style={styles.deleteActionText}>Delete</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      );
+    };
+
+    // Main card content - shared between list and grid views
+    const renderCardContent = () => (
+      <>
+        <View style={styles.noteHeader}>
+          <View style={styles.noteCategoryContainer}>
+            <View 
+              style={[
+                styles.categoryDot, 
+                { backgroundColor: getCategoryColor(item.category) }
+              ]} 
+            />
+            <Text
+              style={[
+                styles.noteCategory,
+                { color: getCategoryColor(item.category) }
+              ]}
+            >
+              {item.category}
+            </Text>
+          </View>
+          
+          {item.isPrivate && (
+            <MaterialIcons name="lock" size={16} color={getCategoryColor('Private')} />
+          )}
+        </View>
+        
+        <Text
+          style={[
+            styles.noteTitle,
+            { color: colors.text }
+          ]}
+          numberOfLines={2}
+        >
+          {item.title}
+        </Text>
+        
+        <Text
+          style={[
+            styles.noteContent,
+            { color: colors.textSecondary }
+          ]}
+          numberOfLines={viewMode === 'grid' ? 3 : 2}
+        >
+          {item.content}
+        </Text>
+        
+        <View style={styles.noteFooter}>
+          <Text
+            style={[
+              styles.noteTimestamp,
+              { color: colors.textTertiary }
+            ]}
+          >
+            {formatTimestamp(item.timestamp)}
+          </Text>
+          
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => handleDeleteNote(item)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <MaterialIcons name="delete-outline" size={18} color={colors.error} />
+          </TouchableOpacity>
+        </View>
+      </>
+    );
+
+    return (
+      <Animated.View
+        style={[
+          styles.noteCardContainer,
+          viewMode === 'grid' ? styles.gridItem : styles.listItem,
+          { 
+            opacity: fadeAnim,
+            transform: [{ 
+              translateY: fadeAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [50, 0]
+              })
+            }]
+          }
+        ]}
+      >
+        {viewMode === 'list' ? (
+          <Swipeable
+            ref={(ref) => setSwipeableRef(ref, item.id)}
+            renderRightActions={renderRightActions}
+            friction={2}
+            rightThreshold={40}
+          >
+            <TouchableOpacity
+              style={[
+                styles.noteCard,
+                { 
+                  backgroundColor: colors.surface,
+                  borderLeftColor: getCategoryColor(item.category),
+                  shadowColor: colors.cardShadow
+                }
+              ]}
+              onPress={() => handleNotePress(item)}
+              activeOpacity={0.7}
+            >
+              {renderCardContent()}
+            </TouchableOpacity>
+          </Swipeable>
+        ) : (
+          <TouchableOpacity
+            style={[
+              styles.noteCard,
+              { 
+                backgroundColor: colors.surface,
+                borderLeftColor: getCategoryColor(item.category),
+                shadowColor: colors.cardShadow
+              }
+            ]}
+            onPress={() => handleNotePress(item)}
+            activeOpacity={0.7}
+          >
+            {renderCardContent()}
+          </TouchableOpacity>
+        )}
+      </Animated.View>
+    );
+  }, [viewMode, fadeAnim, colors, handleDeleteNote, handleNotePress, formatTimestamp, getCategoryColor]);
+  
+  // Render the header with improved styling
   const renderHeader = () => {
     return (
       <View style={[
@@ -408,6 +605,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
                 {backgroundColor: colors.surfaceVariant}
               ]}
               onPress={() => setShowSettings(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons name="settings" size={22} color={colors.icon} />
             </TouchableOpacity>
@@ -416,7 +614,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
               style={[
                 styles.iconButton,
                 {
-                  backgroundColor: showingPrivate ? `${getCategoryColor('Private')}33` : colors.surfaceVariant,
+                  backgroundColor: showingPrivate ? `${getCategoryColor('Private')}15` : colors.surfaceVariant,
                   marginLeft: 12
                 }
               ]}
@@ -427,6 +625,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
                   handlePrivateNoteAccess();
                 }
               }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons 
                 name={showingPrivate ? "lock-open" : "lock"} 
@@ -456,6 +655,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
             <TouchableOpacity
               onPress={() => setSearchQuery('')}
               style={styles.clearButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons name="close" size={18} color={colors.icon} />
             </TouchableOpacity>
@@ -466,13 +666,13 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
           <TouchableOpacity 
             style={[
               styles.viewToggleButton, 
-              viewMode === 'grid' && styles.activeViewToggle,
               { 
-                backgroundColor: viewMode === 'grid' ? colors.primary + '33' : 'transparent',
+                backgroundColor: viewMode === 'grid' ? `${colors.primary}15` : 'transparent',
                 borderColor: viewMode === 'grid' ? colors.primary : 'transparent'
               }
             ]} 
             onPress={() => setViewMode('grid')}
+            hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
           >
             <MaterialIcons 
               name="grid-view" 
@@ -495,13 +695,13 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
           <TouchableOpacity 
             style={[
               styles.viewToggleButton, 
-              viewMode === 'list' && styles.activeViewToggle,
               { 
-                backgroundColor: viewMode === 'list' ? colors.primary + '33' : 'transparent',
+                backgroundColor: viewMode === 'list' ? `${colors.primary}15` : 'transparent',
                 borderColor: viewMode === 'list' ? colors.primary : 'transparent'
               }
             ]}
             onPress={() => setViewMode('list')}
+            hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
           >
             <MaterialIcons 
               name="view-list" 
@@ -525,7 +725,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     );
   };
   
-  // Create note modal with new design
+  // Create note modal with improved design
   const renderCreateNoteModal = () => {
     return (
       <Modal
@@ -549,17 +749,27 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
               { backgroundColor: colors.surface }
             ]}
           >
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Create Note</Text>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Create Note</Text>
+              <TouchableOpacity 
+                style={[styles.modalCloseButton, { backgroundColor: colors.surfaceVariant }]}
+                onPress={() => setShowCreateModal(false)}
+              >
+                <MaterialIcons name="close" size={20} color={colors.icon} />
+              </TouchableOpacity>
+            </View>
             
             <TouchableOpacity
               style={[styles.modalOption, { borderColor: colors.border }]}
               onPress={() => handleCreateNote(false)}
             >
-              <MaterialCommunityIcons name="note-text-outline" size={24} color={colors.primary} />
+              <View style={[styles.modalOptionIcon, { backgroundColor: `${colors.primary}22` }]}>
+                <MaterialCommunityIcons name="note-text-outline" size={24} color={colors.primary} />
+              </View>
               <View style={styles.modalOptionTextContainer}>
-                <Text style={[styles.modalOptionTitle, { color: colors.text }]}>New Note</Text>
+                <Text style={[styles.modalOptionTitle, { color: colors.text }]}>Regular Note</Text>
                 <Text style={[styles.modalOptionDescription, { color: colors.textSecondary }]}>
-                  Create a regular note
+                  Create a standard note
                 </Text>
               </View>
               <MaterialIcons name="chevron-right" size={24} color={colors.icon} />
@@ -569,7 +779,9 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
               style={styles.modalOption}
               onPress={() => handleCreateNote(true)}
             >
-              <MaterialIcons name="lock-outline" size={24} color={getCategoryColor('Private')} />
+              <View style={[styles.modalOptionIcon, { backgroundColor: `${getCategoryColor('Private')}22` }]}>
+                <MaterialIcons name="lock-outline" size={24} color={getCategoryColor('Private')} />
+              </View>
               <View style={styles.modalOptionTextContainer}>
                 <Text style={[styles.modalOptionTitle, { color: colors.text }]}>Private Note</Text>
                 <Text style={[styles.modalOptionDescription, { color: colors.textSecondary }]}>
@@ -584,7 +796,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     );
   };
   
-  // Settings modal with new design
+  // Settings modal with improved design
   const renderSettingsModal = () => {
     return (
       <Modal
@@ -620,6 +832,7 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
               <TouchableOpacity
                 style={[styles.closeButton, { backgroundColor: colors.surfaceVariant }]}
                 onPress={() => setShowSettings(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <MaterialIcons name="close" size={20} color={colors.icon} />
               </TouchableOpacity>
@@ -721,78 +934,102 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     );
   };
   
-  // Empty state when no notes are available
+  // Render improved empty state
   const renderEmptyState = () => {
     return (
       <View style={styles.emptyStateContainer}>
-        <MaterialCommunityIcons 
-          name="note-text-outline" 
-          size={80} 
-          color={colors.textTertiary} 
-        />
-        <Text style={[styles.emptyStateTitle, { color: colors.textSecondary }]}>
-          No Notes Yet
+        <View style={[styles.emptyStateIconContainer, { backgroundColor: `${colors.primary}10` }]}>
+          <MaterialCommunityIcons 
+            name="note-text-outline" 
+            size={60} 
+            color={colors.primary} 
+          />
+        </View>
+        <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
+          {searchQuery ? 'No Results Found' : 'No Notes Yet'}
         </Text>
-        <Text style={[styles.emptyStateSubtitle, { color: colors.textTertiary }]}>
-          {searchQuery.trim() !== '' 
-            ? "No results found for your search." 
-            : "Tap the + button to create your first note."}
+        <Text style={[styles.emptyStateSubtitle, { color: colors.textSecondary }]}>
+          {searchQuery 
+            ? "We couldn't find any notes matching your search."
+            : "Tap the + button below to create your first note."}
         </Text>
+        
+        {searchQuery && (
+          <TouchableOpacity
+            style={[styles.clearSearchButton, { backgroundColor: colors.primary }]}
+            onPress={() => setSearchQuery('')}
+          >
+            <Text style={styles.clearSearchButtonText}>Clear Search</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
   
+  // Modified UI layout - improve spacing and consistency 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        { backgroundColor: colors.background }
+      ]}
+    >
       <StatusBar 
         barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} 
         backgroundColor={colors.background} 
       />
       
+      {/* Header */}
       {renderHeader()}
       
+      {/* Category Filters */}
+      <View style={styles.filterSection}>
+        {renderCategoryFilters()}
+      </View>
+      
+      {/* Notes List */}
       {loadingNotes && !refreshing ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : getNotesToDisplay().length === 0 ? (
         renderEmptyState()
       ) : (
         <FlatList
-          key={viewMode}
           data={getNotesToDisplay()}
           renderItem={renderNoteCard}
           keyExtractor={item => item.id}
+          contentContainerStyle={styles.notesContainer}
           numColumns={viewMode === 'grid' ? 2 : 1}
-          contentContainerStyle={{ 
-            padding: 16,
-            paddingBottom: 80 // Extra padding at bottom for FAB
-          }}
+          key={viewMode} // Force re-render when view mode changes
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
               colors={[colors.primary]}
-              tintColor={colors.primary}
+              progressBackgroundColor={colors.surface}
             />
           }
         />
       )}
       
-      {/* Floating Action Button */}
+      {/* Create Note Button */}
       <TouchableOpacity
         style={[
-          styles.fab,
+          styles.fabButton,
           { backgroundColor: colors.primary }
         ]}
         onPress={() => setShowCreateModal(true)}
         activeOpacity={0.8}
       >
-        <Text style={styles.fabIcon}>+</Text>
+        <MaterialIcons name="add" size={28} color={colors.onPrimary} />
       </TouchableOpacity>
       
+      {/* Create Note Modal */}
       {renderCreateNoteModal()}
+      
+      {/* Settings Modal */}
       {renderSettingsModal()}
     </SafeAreaView>
   );
@@ -806,18 +1043,18 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    fontWeight: '600',
+    padding: 20,
   },
   header: {
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    elevation: 0,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
   },
   headerTop: {
     flexDirection: 'row',
@@ -836,141 +1073,128 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     marginTop: 4,
+    opacity: 0.8,
   },
   headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
   },
   searchIcon: {
-    marginRight: 12,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
     padding: 0,
+    height: 36,
   },
   clearButton: {
     padding: 4,
   },
   viewToggleContainer: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   viewToggleButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 8,
     marginRight: 12,
     borderWidth: 1,
-  },
-  activeViewToggle: {
-    backgroundColor: '#EDF2F7',
   },
   viewToggleText: {
     fontWeight: '500',
     fontSize: 14,
   },
   notesContainer: {
-    padding: 12,
+    padding: SCREEN_WIDTH < 350 ? 8 : 12,
+    paddingBottom: 80, // Space for FAB
+  },
+  noteCardContainer: {
+    margin: 6,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   noteCard: {
-    borderRadius: 16,
-    margin: 6,
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
     elevation: 2,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    borderWidth: 1,
-    overflow: 'hidden',
   },
-  gridCard: {
+  gridItem: {
     flex: 1,
-    height: 200,
+    height: SCREEN_WIDTH < 350 ? 180 : 200, // Smaller height on small screens
   },
-  listCard: {
+  listItem: {
     width: '97%',
-    height: 'auto',
+    minHeight: 120,
   },
-  cardContent: {
-    flex: 1,
-    padding: 16,
-  },
-  cardHeader: {
-    marginBottom: 12,
-  },
-  titleContainer: {
+  noteHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  noteCategoryContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  categoryDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 4,
+  },
+  noteCategory: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   noteTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    flex: 1,
-  },
-  lockIcon: {
-    marginLeft: 6,
-  },
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  categoryIcon: {
-    marginRight: 4,
-  },
-  categoryText: {
-    fontSize: 12,
-    fontWeight: '600',
+    marginBottom: 8,
   },
   noteContent: {
     fontSize: 14,
     lineHeight: 20,
     flex: 1,
     marginBottom: 12,
+    opacity: 0.8,
   },
-  cardFooter: {
+  noteFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 'auto',
   },
-  timestamp: {
+  noteTimestamp: {
     fontSize: 12,
   },
-  addButton: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
+  deleteButton: {
+    padding: 6,
+    borderRadius: 20,
+    opacity: 0.7,
   },
   modalOverlay: {
     flex: 1,
@@ -981,10 +1205,22 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     padding: 24,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 20,
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalOption: {
     flexDirection: 'row',
@@ -993,9 +1229,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'transparent',
   },
+  modalOptionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
   modalOptionTextContainer: {
     flex: 1,
-    marginLeft: 16,
   },
   modalOptionTitle: {
     fontSize: 16,
@@ -1009,12 +1252,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
+    maxHeight: SCREEN_HEIGHT * 0.8,
   },
   settingsTitle: {
     fontSize: 20,
@@ -1070,20 +1308,40 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    padding: 32,
+  },
+  emptyStateIconContainer: {
+    width: 80,
+    height: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 16,
+    marginBottom: 16,
   },
   emptyStateTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 16,
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptyStateSubtitle: {
     fontSize: 16,
     textAlign: 'center',
     lineHeight: 22,
+    marginBottom: 24,
   },
-  fab: {
+  clearSearchButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  clearSearchButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'white',
+  },
+  fabButton: {
     position: 'absolute',
     bottom: 24,
     right: 24,
@@ -1092,15 +1350,60 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 4,
+    elevation: 6,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.27,
+    shadowRadius: 4.65,
   },
-  fabIcon: {
-    fontSize: 28,
+  filterSection: {
+    paddingTop: 4,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  categoryFiltersContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    flexDirection: 'row',
+  },
+  categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  categoryChipIcon: {
+    marginRight: 4,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  deleteContainer: {
+    width: 80,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  deleteActionInner: {
+    width: 80,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  deleteActionText: {
+    fontSize: 12,
     fontWeight: 'bold',
+    color: 'white',
+    marginTop: 4,
   },
 });
 

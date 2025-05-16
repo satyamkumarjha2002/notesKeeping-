@@ -516,20 +516,6 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
                 : 'Already have an account? Login'}
             </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.skipContainer}
-            onPress={handleSkip}
-          >
-            <Text
-              style={[
-                styles.skipText,
-                { color: theme === 'dark' ? '#A0AEC0' : '#718096' }
-              ]}
-            >
-              Continue without account
-            </Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

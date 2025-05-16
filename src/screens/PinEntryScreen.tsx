@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../App';
+import { useAppContext } from '../context/AppContext';
 
 type PinEntryScreenNavigationProp = StackNavigationProp<RootStackParamList, 'PinEntry'>;
 
@@ -20,14 +21,22 @@ interface PinEntryScreenProps {
 const AnimatedView = Animated.View as any;
 const AnimatedText = Animated.Text as any;
 
-// For demonstration purposes - in a real app, this would be securely stored
-const DEMO_PIN = '1234';
 const PIN_LENGTH = 4;
 
 const PinEntryScreen = ({ navigation }: PinEntryScreenProps) => {
+  const { isPinSet, verifyPin, setPinCode, theme } = useAppContext();
   const [pin, setPin] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [showError, setShowError] = useState<boolean>(false);
+  const [isSettingPin, setIsSettingPin] = useState<boolean>(false);
+  const [confirmPin, setConfirmPin] = useState<string>('');
+  
+  // Check if PIN is set on component mount
+  useEffect(() => {
+    if (!isPinSet) {
+      setIsSettingPin(true);
+    }
+  }, [isPinSet]);
   
   // Animation for pin dots
   const dotScale = React.useRef(Array(PIN_LENGTH).fill(0).map(() => new Animated.Value(1))).current;
@@ -62,44 +71,103 @@ const PinEntryScreen = ({ navigation }: PinEntryScreenProps) => {
       
       // Check if PIN is complete
       if (newPin.length === PIN_LENGTH) {
-        setTimeout(() => {
-          if (newPin === DEMO_PIN) {
-            navigation.replace('Home');
-          } else {
-            setErrorMessage('Incorrect PIN. Please try again.');
-            setShowError(true);
-            
-            // Reset PIN and animate dots
-            setPin('');
-            dotOpacity.forEach((opacity, index) => {
-              Animated.timing(opacity, {
-                toValue: 0.3,
-                duration: 200,
-                useNativeDriver: true,
-              }).start();
+        setTimeout(async () => {
+          if (isSettingPin) {
+            // Setting a new PIN
+            if (!confirmPin) {
+              // First entry, store for confirmation
+              setConfirmPin(newPin);
+              setErrorMessage('Please confirm your PIN');
+              setShowError(true);
+              setPin('');
               
-              Animated.sequence([
-                Animated.timing(dotScale[index], {
-                  toValue: 1.2,
-                  duration: 100,
-                  useNativeDriver: true,
-                }),
-                Animated.timing(dotScale[index], {
-                  toValue: 1,
-                  duration: 100,
-                  useNativeDriver: true,
-                }),
-              ]).start();
-            });
+              // Reset animation
+              resetPinAnimation();
+              
+              setTimeout(() => {
+                setShowError(false);
+              }, 2000);
+            } else {
+              // Confirming PIN
+              if (newPin === confirmPin) {
+                // PINs match, save it
+                try {
+                  await setPinCode(newPin);
+                  navigation.replace('Home');
+                } catch (error) {
+                  setErrorMessage('Failed to save PIN. Please try again.');
+                  setShowError(true);
+                  setPin('');
+                  setConfirmPin('');
+                  
+                  // Reset animation
+                  resetPinAnimation();
+                  
+                  setTimeout(() => {
+                    setShowError(false);
+                  }, 2000);
+                }
+              } else {
+                // PINs don't match
+                setErrorMessage('PINs do not match. Please try again.');
+                setShowError(true);
+                setPin('');
+                setConfirmPin('');
+                
+                // Reset animation
+                resetPinAnimation();
+                
+                setTimeout(() => {
+                  setShowError(false);
+                }, 2000);
+              }
+            }
+          } else {
+            // Verifying existing PIN
+            const isValid = await verifyPin(newPin);
             
-            // Hide error message after 2 seconds
-            setTimeout(() => {
-              setShowError(false);
-            }, 2000);
+            if (isValid) {
+              navigation.replace('Home');
+            } else {
+              setErrorMessage('Incorrect PIN. Please try again.');
+              setShowError(true);
+              setPin('');
+              
+              // Reset animation
+              resetPinAnimation();
+              
+              setTimeout(() => {
+                setShowError(false);
+              }, 2000);
+            }
           }
         }, 300);
       }
     }
+  };
+  
+  // Reset PIN animation
+  const resetPinAnimation = () => {
+    dotOpacity.forEach((opacity, index) => {
+      Animated.timing(opacity, {
+        toValue: 0.3,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+      
+      Animated.sequence([
+        Animated.timing(dotScale[index], {
+          toValue: 1.2,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(dotScale[index], {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
   };
   
   // Handle delete button press
@@ -135,7 +203,14 @@ const PinEntryScreen = ({ navigation }: PinEntryScreenProps) => {
                 style={styles.keypadButton}
                 onPress={handleDelete}
               >
-                <Text style={styles.keypadDeleteText}>←</Text>
+                <Text 
+                  style={[
+                    styles.keypadDeleteText,
+                    { color: theme === 'dark' ? '#A0AEC0' : '#718096' }
+                  ]}
+                >
+                  ←
+                </Text>
               </TouchableOpacity>
             );
           }
@@ -146,7 +221,14 @@ const PinEntryScreen = ({ navigation }: PinEntryScreenProps) => {
               style={styles.keypadButton}
               onPress={() => handleNumberPress(number.toString())}
             >
-              <Text style={styles.keypadText}>{number}</Text>
+              <Text 
+                style={[
+                  styles.keypadText,
+                  { color: theme === 'dark' ? '#FFFFFF' : '#2D3748' }
+                ]}
+              >
+                {number}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -166,6 +248,7 @@ const PinEntryScreen = ({ navigation }: PinEntryScreenProps) => {
               {
                 opacity: dotOpacity[index],
                 transform: [{ scale: dotScale[index] }],
+                backgroundColor: theme === 'dark' ? '#4A6FA5' : '#4A6FA5',
               },
             ]}
           />
@@ -175,15 +258,39 @@ const PinEntryScreen = ({ navigation }: PinEntryScreenProps) => {
   };
   
   return (
-    <View style={styles.container}>
+    <View 
+      style={[
+        styles.container,
+        { backgroundColor: theme === 'dark' ? '#1A202C' : '#F5F7FA' }
+      ]}
+    >
       <View style={styles.contentContainer}>
-        <Text style={styles.welcomeText}>Welcome</Text>
-        <Text style={styles.instructionText}>Enter App PIN</Text>
+        <Text 
+          style={[
+            styles.welcomeText,
+            { color: theme === 'dark' ? '#FFFFFF' : '#2D3748' }
+          ]}
+        >
+          Welcome
+        </Text>
+        <Text 
+          style={[
+            styles.instructionText,
+            { color: theme === 'dark' ? '#A0AEC0' : '#718096' }
+          ]}
+        >
+          {isSettingPin 
+            ? (confirmPin ? 'Confirm your PIN' : 'Create a PIN')
+            : 'Enter your PIN'
+          }
+        </Text>
         
         {renderPinDots()}
         
         {showError && (
-          <AnimatedText style={styles.errorText}>
+          <AnimatedText 
+            style={styles.errorText}
+          >
             {errorMessage}
           </AnimatedText>
         )}
@@ -204,7 +311,6 @@ const buttonSize = width / 5;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
     justifyContent: 'space-between',
     paddingTop: 60,
     paddingBottom: 30,
@@ -218,11 +324,9 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#2D3748',
   },
   instructionText: {
     fontSize: 18,
-    color: '#718096',
     marginBottom: 40,
   },
   pinDotsContainer: {
@@ -234,7 +338,6 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#4A6FA5',
     marginHorizontal: 8,
   },
   errorText: {
@@ -258,11 +361,9 @@ const styles = StyleSheet.create({
   keypadText: {
     fontSize: 28,
     fontWeight: '500',
-    color: '#2D3748',
   },
   keypadDeleteText: {
     fontSize: 28,
-    color: '#718096',
   },
   lockIconContainer: {
     position: 'absolute',

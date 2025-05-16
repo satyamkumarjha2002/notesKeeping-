@@ -1,0 +1,37 @@
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+
+// Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyDBrruLHVVpao5uIeZYmDXkTKgcusGigv8",
+  authDomain: "noteskeeping-30144.firebaseapp.com",
+  projectId: "noteskeeping-30144",
+  storageBucket: "noteskeeping-30144.firebasestorage.app",
+  messagingSenderId: "306645366653",
+  appId: "1:306645366653:android:1ba75d8749f4142a2ffe14",
+  databaseURL: "https://noteskeeping-30144-default-rtdb.firebaseio.com"
+};
+
+// Initialize Firebase
+const firebaseApp = initializeApp(firebaseConfig);
+
+// Initialize Firebase services
+const firebaseAuth = getAuth(firebaseApp);
+
+// Use the specific database name 'notesdb' for Firestore
+// Note: The database name is specified in the FirebaseService when making REST API calls
+const firestoreDB = getFirestore(firebaseApp);
+
+const firebaseStorage = getStorage(firebaseApp);
+
+// Export Firebase modules
+export { 
+  firebaseApp, 
+  firebaseAuth, 
+  firestoreDB, 
+  firebaseStorage 
+};
+
+export default firebaseApp; 

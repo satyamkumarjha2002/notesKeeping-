@@ -25,10 +25,9 @@
         "foregroundImage": "./src/assets/adaptive-icon.png",
         "backgroundColor": "#F5F7FA"
       },
-      "package": "com.yourcompany.noteskeeping"
+      "package": "com.yourcompany.noteskeeping",
+      "googleServicesFile": "./google-services.json"
     },
-    "web": {
-      "favicon": "./src/assets/favicon.png"
-    }
+    "web": {}
   }
 } 

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "306645366653",
+    "project_id": "noteskeeping-30144",
+    "storage_bucket": "noteskeeping-30144.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:306645366653:android:1ba75d8749f4142a2ffe14",
+        "android_client_info": {
+          "package_name": "com.yourcompany.noteskeeping"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDBrruLHVVpao5uIeZYmDXkTKgcusGigv8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,102 +1,145 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Define theme types
-type ThemeType = 'light' | 'dark';
+// Theme type and colors
+export type ThemeType = 'dark' | 'light';
 
-// Define the context shape
-interface AppContextType {
-  isAuthenticated: boolean;
-  setIsAuthenticated: (value: boolean) => void;
+export const ThemeColors = {
+  dark: {
+    background: '#121212',
+    surface: '#1E1E1E',
+    surfaceVariant: '#2A2A2A',
+    primary: '#BB86FC',
+    primaryVariant: '#3700B3',
+    secondary: '#03DAC6',
+    error: '#CF6679',
+    onBackground: '#FFFFFF',
+    onSurface: '#FFFFFF',
+    onPrimary: '#000000',
+    onSecondary: '#000000',
+    onError: '#000000',
+    border: '#333333',
+    divider: '#333333',
+    icon: '#BBBBBB',
+    text: '#FFFFFF',
+    textSecondary: '#BBBBBB',
+    textTertiary: '#888888',
+    cardShadow: '#000000',
+    statusBar: 'light-content',
+    ripple: 'rgba(255, 255, 255, 0.1)',
+    overlay: 'rgba(0, 0, 0, 0.6)',
+  },
+  light: {
+    background: '#FAFAFA',
+    surface: '#FFFFFF',
+    surfaceVariant: '#F5F5F5',
+    primary: '#6200EE',
+    primaryVariant: '#3700B3',
+    secondary: '#03DAC6',
+    error: '#B00020',
+    onBackground: '#000000',
+    onSurface: '#000000',
+    onPrimary: '#FFFFFF',
+    onSecondary: '#000000',
+    onError: '#FFFFFF',
+    border: '#E0E0E0',
+    divider: '#E0E0E0',
+    icon: '#666666',
+    text: '#000000',
+    textSecondary: '#555555',
+    textTertiary: '#888888',
+    cardShadow: '#AAAAAA',
+    statusBar: 'dark-content',
+    ripple: 'rgba(0, 0, 0, 0.1)',
+    overlay: 'rgba(0, 0, 0, 0.5)',
+  }
+};
+
+// Category colors that work with both themes
+export const CategoryColors = {
+  General: '#6200EE',
+  Work: '#03DAC6',
+  Personal: '#43A047',
+  Ideas: '#FB8C00',
+  Lists: '#E53935',
+  Private: '#C2185B',
+};
+
+// AppContext interface
+interface AppContextProps {
   theme: ThemeType;
+  colors: typeof ThemeColors.dark | typeof ThemeColors.light;
   toggleTheme: () => void;
+  getCategoryColor: (category: string) => string;
   isPinSet: boolean;
-  setPinCode: (pin: string) => Promise<void>;
+  setIsAuthenticated: (value: boolean) => void;
   verifyPin: (pin: string) => Promise<boolean>;
-  appLoading: boolean;
+  setPinCode: (pin: string) => Promise<void>;
 }
 
 // Create context with default values
-const AppContext = createContext<AppContextType>({
-  isAuthenticated: false,
-  setIsAuthenticated: () => {},
-  theme: 'light',
+const AppContext = createContext<AppContextProps>({
+  theme: 'dark',
+  colors: ThemeColors.dark,
   toggleTheme: () => {},
+  getCategoryColor: () => '',
   isPinSet: false,
-  setPinCode: async () => {},
+  setIsAuthenticated: () => {},
   verifyPin: async () => false,
-  appLoading: true,
+  setPinCode: async () => {},
 });
 
-// Fix TypeScript issues by casting components
-const ContextProvider = AppContext.Provider as any;
-
-// Context provider props
+// AppProvider props
 interface AppProviderProps {
   children: ReactNode;
 }
 
-// Storage keys
-const THEME_KEY = 'noteskeeping_theme';
-const PIN_KEY = 'noteskeeping_pin';
-
-// Context provider component
+// AppProvider component
 export const AppProvider = ({ children }: AppProviderProps) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [theme, setTheme] = useState<ThemeType>('light');
+  const [theme, setTheme] = useState<ThemeType>('dark');
   const [isPinSet, setIsPinSet] = useState(false);
-  const [appLoading, setAppLoading] = useState(true);
-
-  // Initialize app state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  // Load saved theme from storage on initial render
   useEffect(() => {
-    const initializeApp = async () => {
+    const loadTheme = async () => {
       try {
-        // Load saved theme
-        const savedTheme = await SecureStore.getItemAsync(THEME_KEY);
+        const savedTheme = await AsyncStorage.getItem('noteskeeping_theme');
         if (savedTheme) {
           setTheme(savedTheme as ThemeType);
         }
-
-        // Check if PIN is set
-        const hasPin = await SecureStore.getItemAsync(PIN_KEY);
-        setIsPinSet(!!hasPin);
       } catch (error) {
-        console.error('Error initializing app:', error);
-      } finally {
-        setAppLoading(false);
+        console.error('Failed to load theme:', error);
       }
     };
-
-    initializeApp();
+    
+    loadTheme();
   }, []);
-
-  // Toggle between light and dark theme
+  
+  // Toggle between light and dark themes
   const toggleTheme = async () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
+    const newTheme: ThemeType = theme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
     
     try {
-      await SecureStore.setItemAsync(THEME_KEY, newTheme);
+      await AsyncStorage.setItem('noteskeeping_theme', newTheme);
     } catch (error) {
-      console.error('Error saving theme:', error);
+      console.error('Failed to save theme:', error);
     }
   };
-
-  // Set PIN code
-  const setPinCode = async (pin: string) => {
-    try {
-      await SecureStore.setItemAsync(PIN_KEY, pin);
-      setIsPinSet(true);
-    } catch (error) {
-      console.error('Error setting PIN:', error);
-      throw error;
-    }
+  
+  // Get the color for a specific category
+  const getCategoryColor = (category: string): string => {
+    return CategoryColors[category] || CategoryColors.General;
   };
-
-  // Verify PIN code
-  const verifyPin = async (pin: string) => {
+  
+  // Current theme colors
+  const colors = ThemeColors[theme];
+  
+  // Verify PIN
+  const verifyPin = async (pin: string): Promise<boolean> => {
     try {
-      const storedPin = await SecureStore.getItemAsync(PIN_KEY);
+      const storedPin = await AsyncStorage.getItem('noteskeeping_pin');
       return storedPin === pin;
     } catch (error) {
       console.error('Error verifying PIN:', error);
@@ -104,26 +147,37 @@ export const AppProvider = ({ children }: AppProviderProps) => {
     }
   };
 
-  // Context value
-  const contextValue: AppContextType = {
-    isAuthenticated,
-    setIsAuthenticated,
-    theme,
-    toggleTheme,
-    isPinSet,
-    setPinCode,
-    verifyPin,
-    appLoading,
+  // Set PIN code
+  const setPinCode = async (pin: string): Promise<void> => {
+    try {
+      await AsyncStorage.setItem('noteskeeping_pin', pin);
+      setIsPinSet(true);
+    } catch (error) {
+      console.error('Error setting PIN:', error);
+      throw error;
+    }
   };
-
+  
+  // Context value
+  const contextValue: AppContextProps = {
+    theme,
+    colors,
+    toggleTheme,
+    getCategoryColor,
+    isPinSet,
+    setIsAuthenticated,
+    verifyPin,
+    setPinCode,
+  };
+  
   return (
-    <ContextProvider value={contextValue}>
+    <AppContext.Provider value={contextValue}>
       {children}
-    </ContextProvider>
+    </AppContext.Provider>
   );
 };
 
-// Custom hook for using the app context
+// Hook for using the AppContext
 export const useAppContext = () => useContext(AppContext);
 
 export default AppContext; 

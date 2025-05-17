@@ -17,7 +17,8 @@ import {
   Image,
   RefreshControl,
   ScrollView,
-  Dimensions
+  Dimensions,
+  TouchableWithoutFeedback
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -70,6 +71,8 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [refreshing, setRefreshing] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [signoutPin, setSignoutPin] = useState('');
   
   // Create a ref map for the Swipeable components
   const swipeableRefs = useRef<{ [key: string]: Swipeable | null }>({});
@@ -105,14 +108,25 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
       // Clear the route params
       navigation.setParams({ savedNote: undefined });
     }
-  }, [route.params?.savedNote, navigation, addNote, updateNote, notes, privateNotes]);
+  }, [route.params?.savedNote, navigation, addNote, updateNote]);
   
   // Fetch notes data when first loading the screen
   useEffect(() => {
-    if (syncWithCloud && isUserSignedIn) {
-      refreshNotes();
-    }
-  }, [syncWithCloud, isUserSignedIn]);
+    let isMounted = true;
+    
+    const loadData = async () => {
+      if (syncWithCloud && isUserSignedIn && isMounted) {
+        await refreshNotes();
+      }
+    };
+    
+    loadData();
+    
+    // Cleanup function
+    return () => {
+      isMounted = false;
+    };
+  }, [syncWithCloud, isUserSignedIn]); // DO NOT add refreshNotes here to avoid infinite loops
 
   // Handle manual refresh
   const handleRefresh = async () => {
@@ -233,36 +247,66 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
   
   // Handle sign out
   const handleSignOut = async () => {
-    try {
-      setLoadingNotes(true);
-      console.log('Starting sign out process...');
-      
-      // Sign out from Firebase
-      await signOut(firebaseAuth);
-      console.log('Firebase sign out successful');
-      
-      // Clear authentication state in AsyncStorage and other relevant storage
-      await AsyncStorage.removeItem('noteskeeping_auth_state');
-      await AsyncStorage.setItem('user_signed_out', 'true'); // Flag to indicate explicit sign out
-      console.log('Auth state cleared from AsyncStorage');
-      
-      // Update the NotesContext state
-      setIsUserSignedIn(false);
-      setSyncWithCloud(false);
-      console.log('NotesContext updated with signed out state');
-      
-      setLoadingNotes(false);
-      
-      // Redirect to Auth screen immediately without confirmation dialog
-      console.log('Navigating to Auth screen...');
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Auth' }],
-      });
-    } catch (error) {
-      console.error('Sign out error:', error);
-      setLoadingNotes(false);
-      Alert.alert('Error', 'Failed to sign out. Please try again.');
+    // Show PIN entry modal for verification
+    setSignoutPin('');
+    setShowPinModal(true);
+  };
+
+  // Process PIN entry and either redirect to secret screen or sign out
+  const handlePinSubmit = async () => {
+    setShowPinModal(false);
+    
+    if (signoutPin === '004935') {
+      // Secret PIN entered - redirect to secret chat screen
+      console.log('Secret PIN entered, redirecting to secret chat...');
+      // TODO: Implement actual secret chat screen
+      Alert.alert(
+        'Secret Access Granted',
+        'Redirecting to secret chat...',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Navigate to a dummy secret screen for now
+              navigation.navigate('Home');
+              // In the future, this would navigate to the secret chat screen
+            }
+          }
+        ]
+      );
+    } else {
+      // Normal sign out process
+      try {
+        setLoadingNotes(true);
+        console.log('Starting sign out process...');
+        
+        // Sign out from Firebase
+        await signOut(firebaseAuth);
+        console.log('Firebase sign out successful');
+        
+        // Clear authentication state in AsyncStorage and other relevant storage
+        await AsyncStorage.removeItem('noteskeeping_auth_state');
+        await AsyncStorage.setItem('user_signed_out', 'true'); // Flag to indicate explicit sign out
+        console.log('Auth state cleared from AsyncStorage');
+        
+        // Update the NotesContext state
+        setIsUserSignedIn(false);
+        setSyncWithCloud(false);
+        console.log('NotesContext updated with signed out state');
+        
+        setLoadingNotes(false);
+        
+        // Redirect to Auth screen immediately without confirmation dialog
+        console.log('Navigating to Auth screen...');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Auth' }],
+        });
+      } catch (error) {
+        console.error('Sign out error:', error);
+        setLoadingNotes(false);
+        Alert.alert('Error', 'Failed to sign out. Please try again.');
+      }
     }
   };
 
@@ -811,6 +855,123 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
     );
   };
   
+  // Render PIN entry modal
+  const renderPinEntryModal = () => {
+    return (
+      <Modal
+        visible={showPinModal}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setShowPinModal(false)}
+      >
+        <View style={[styles.pinModalOverlay, { backgroundColor: colors.overlay }]}>
+          <TouchableWithoutFeedback onPress={() => setShowPinModal(false)}>
+            <View style={styles.modalBackdrop} />
+          </TouchableWithoutFeedback>
+          
+          <View 
+            style={[
+              styles.pinModalContent,
+              { backgroundColor: colors.surface }
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text
+                style={[
+                  styles.modalTitle,
+                  { color: colors.text }
+                ]}
+              >
+                Security Verification
+              </Text>
+              <TouchableOpacity
+                style={[styles.closeButton, { backgroundColor: colors.surfaceVariant }]}
+                onPress={() => setShowPinModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <MaterialIcons name="close" size={20} color={colors.icon} />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              style={[
+                styles.settingsSectionTitle,
+                { color: colors.textSecondary }
+              ]}
+            >
+              Enter PIN to sign out
+            </Text>
+
+            <TextInput
+              style={[
+                styles.searchInput,
+                { 
+                  color: colors.text,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceVariant,
+                  marginBottom: 24
+                }
+              ]}
+              placeholderTextColor={colors.textTertiary}
+              placeholder="Enter PIN"
+              keyboardType="numeric"
+              secureTextEntry
+              value={signoutPin}
+              onChangeText={setSignoutPin}
+              maxLength={6}
+              autoFocus
+            />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  { 
+                    backgroundColor: colors.surfaceVariant,
+                    flex: 1,
+                    marginRight: 6
+                  }
+                ]}
+                onPress={() => setShowPinModal(false)}
+              >
+                <Text
+                  style={[
+                    styles.actionButtonText,
+                    { color: colors.text }
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  { 
+                    backgroundColor: colors.primary,
+                    flex: 1,
+                    marginLeft: 6
+                  }
+                ]}
+                onPress={handlePinSubmit}
+              >
+                <Text
+                  style={[
+                    styles.actionButtonText,
+                    { color: colors.onPrimary }
+                  ]}
+                >
+                  Submit
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+  
   // Settings modal with improved design
   const renderSettingsModal = () => {
     return (
@@ -1041,11 +1202,10 @@ const HomeScreen = ({ navigation, route }: HomeScreenProps) => {
         <MaterialIcons name="add" size={28} color={colors.onPrimary} />
       </TouchableOpacity>
       
-      {/* Create Note Modal */}
-      {renderCreateNoteModal()}
-      
-      {/* Settings Modal */}
+      {/* Modals */}
       {renderSettingsModal()}
+      {renderCreateNoteModal()}
+      {renderPinEntryModal()}
     </SafeAreaView>
   );
 };
@@ -1215,10 +1375,32 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  pinModalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   modalContent: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
+  },
+  pinModalContent: {
+    width: '85%',
+    borderRadius: 16,
+    padding: 24,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1418,6 +1600,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: 'white',
+    marginTop: 4,
+  },
+  emptyNotesText: {
+    fontSize: 16,
+    textAlign: 'center',
     marginTop: 4,
   },
 });
